@@ -388,8 +388,9 @@ public class PatientScenarioController : MonoBehaviour
                 // its OWN cached position every LateUpdate() specifically to resist exactly
                 // this kind of external move - confirmed the cause of "position sets correctly,
                 // then silently reverts" during real testing. Telling it about the new position
-                // keeps that protection intact for anything else while no longer fighting this
-                // legitimate, deliberate teleport.
+                // (and, as of the lockRotation addition, the new rotation too) keeps that
+                // protection intact for anything else while no longer fighting this legitimate,
+                // deliberate teleport.
                 //
                 // Deliberately searches children AND parents, not just target itself -
                 // TryGetComponent (the original version of this check) only looks at the exact
@@ -410,14 +411,21 @@ public class PatientScenarioController : MonoBehaviour
                 {
                     lookAtPlayer.SetLockedPosition(marker.position);
 
+                    // Same reasoning as SetLockedPosition above, but for LookAtPlayer's own
+                    // lockRotation hold - without this, a marker that teleports Sofia into a
+                    // non-"standing" pose (chair_seated, laying_unconscious, etc.) would have its
+                    // rotation immediately overwritten by lockRotation snapping back to whatever
+                    // rotation was locked in before this transition, on the very next LateUpdate().
+                    lookAtPlayer.SetLockedRotation(marker.rotation);
+
                     if (lookAtPlayer.transform != target)
                     {
                         Debug.LogWarning($"[PatientScenarioController] LookAtPlayer found on \"{lookAtPlayer.name}\", " +
                                            $"which is NOT the same GameObject as \"{target.name}\" (this stage's teleport " +
                                            "target) - this used to be silently missed entirely before this warning was " +
-                                           "added. Its locked position has been synced this time, but it's worth moving " +
-                                           "either LookAtPlayer or double-checking the Sofia Transform field so both " +
-                                           "always agree on the same object going forward.");
+                                           "added. Its locked position AND rotation have been synced this time, but it's " +
+                                           "worth moving either LookAtPlayer or double-checking the Sofia Transform field " +
+                                           "so both always agree on the same object going forward.");
                     }
                 }
 

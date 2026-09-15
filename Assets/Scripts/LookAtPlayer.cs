@@ -10,6 +10,14 @@ public class LookAtPlayer : MonoBehaviour
     [Tooltip("Re-assert the starting position every frame, so nothing else (Animator root motion, etc.) can drag this object out of place.")]
     public bool lockPosition = true;
 
+    [Tooltip("Same idea as Lock Position above, but for rotation - re-assert a held rotation every " +
+             "frame WHILE NOT actively looking at the player (see requiredStateTag below), so nothing " +
+             "else can drag Sofia's facing out of place while she's e.g. seated/reclined. Has no " +
+             "effect while she IS actively looking at the player - that's still the Slerp below, not " +
+             "a hold. Added alongside SetLockedRotation()/SetLockedPosition() so a stage transition's " +
+             "teleport resets rotation drift the same way it already resets position drift.")]
+    public bool lockRotation = true;
+
     [Header("Only look at the player while in a matching pose")]
     [Tooltip("Assign Sofia's Animator directly. If left empty, this will try GetComponent<Animator>() " +
              "on this same GameObject at Start(). If no Animator can be found at all, the look-at " +
@@ -30,6 +38,7 @@ public class LookAtPlayer : MonoBehaviour
     [SerializeField] private string requiredStateTag = "standing";
 
     Vector3 _lockedPosition;
+    Quaternion _lockedRotation;
 
     // Call this whenever something LEGITIMATELY teleports this object (e.g.
     // PatientScenarioController moving Sofia to a named PositionMarkerRegistry marker) -
@@ -39,9 +48,17 @@ public class LookAtPlayer : MonoBehaviour
     // easy to forget at every call site - this way the two systems just agree with each other.
     public void SetLockedPosition(Vector3 position) => _lockedPosition = position;
 
+    // Same as SetLockedPosition above, but for rotation - call this alongside it whenever
+    // something legitimately teleports/reorients this object, so lockRotation's hold (below)
+    // agrees with the new facing instead of dragging it back to whatever it was before.
+    // PatientScenarioController calls this immediately after SetLockedPosition, right where the
+    // marker's rotation is already being applied via SetPositionAndRotation.
+    public void SetLockedRotation(Quaternion rotation) => _lockedRotation = rotation;
+
     void Start()
     {
         _lockedPosition = transform.position;
+        _lockedRotation = transform.rotation;
 
         if (player == null)
         {
@@ -61,19 +78,33 @@ public class LookAtPlayer : MonoBehaviour
         if (lockPosition)
             transform.position = _lockedPosition;
 
-        if (player == null)
-            return;
+        bool wantsToLook = player != null && IsInAllowedLookAtPose();
 
-        if (!IsInAllowedLookAtPose())
+        if (!wantsToLook)
+        {
+            // Not actively looking (no player, or current pose isn't tagged for it, e.g.
+            // chair_seated/laying_unconscious) - hold whatever rotation was last locked in,
+            // the same way lockPosition above holds position, instead of leaving Sofia free
+            // to be rotated by something else (Animator root motion, a stray transform set,
+            // etc.) while she's not supposed to be turning to face anyone.
+            if (lockRotation)
+                transform.rotation = _lockedRotation;
             return;
+        }
 
         var direction = player.position - transform.position;
         direction.y = 0f; // stay upright - turn left/right only, never tilt up/down toward the player
-        if (direction.sqrMagnitude < 0.0001f)
-            return;
+        if (direction.sqrMagnitude >= 0.0001f)
+        {
+            var targetRotation = Quaternion.LookRotation(direction, Vector3.up);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * rotationSpeed);
+        }
 
-        var targetRotation = Quaternion.LookRotation(direction, Vector3.up);
-        transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * rotationSpeed);
+        // Keep the locked rotation current while actively looking, so the instant this pose
+        // stops being an allowed look-at pose (e.g. the very next stage), lockRotation above
+        // holds from wherever Sofia was actually facing rather than snapping back to whatever
+        // rotation was locked in the last time she WASN'T looking at the player.
+        _lockedRotation = transform.rotation;
     }
 
     // Gates the LOOK-AT (rotation) behaviour only - lockPosition above is unaffected, since

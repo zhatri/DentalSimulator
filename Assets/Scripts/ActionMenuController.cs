@@ -297,7 +297,7 @@ public class ActionMenuController : MonoBehaviour
                              "persistent one carries over via DontDestroyOnLoad from a bootstrap scene).");
         }
 
-        var raycaster = FindFirstObjectByType<UnityEngine.UI.GraphicRaycaster>();
+        var raycaster = FindAnyObjectByType<UnityEngine.UI.GraphicRaycaster>();
         if (raycaster == null)
         {
             Debug.LogError("[ActionMenuController] No GraphicRaycaster found on any Canvas in this scene - UI clicks cannot " +
