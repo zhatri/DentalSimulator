@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 // Owns progression through a scenario's patient-condition stages during the
@@ -18,6 +19,14 @@ public class PatientScenarioController : MonoBehaviour
     // SessionManager.Instance. Not DontDestroyOnLoad-persisted like that one, since this
     // is scoped to a single scenario run, not the whole app session.
     public static PatientScenarioController Instance { get; private set; }
+
+    // Raised from ReportTraineeAction() whenever a trainee-performed action is rejected -
+    // either because the current stage doesn't accept action-based advancement at all, or
+    // because the specific action id doesn't match what this stage expects. IncorrectActionUI
+    // (or any other listener) subscribes to this to show a deterministic "wrong action" notice;
+    // this class itself has no idea any UI exists, same separation SofiaPersona/
+    // ScenarioSelectionController already keep from whatever reacts to their own events.
+    public event Action<string> OnIncorrectTraineeAction;
 
     [SerializeField] private SofiaPersona sofiaPersona;
 
@@ -228,12 +237,14 @@ public class PatientScenarioController : MonoBehaviour
         if (stage == null || !stage.traineeActionCanAdvanceStage)
         {
             Debug.LogWarning($"[PatientScenarioController] Ignoring trainee action \"{actionId}\" - current stage doesn't allow action-based advancement.");
+            OnIncorrectTraineeAction?.Invoke(actionId);
             return;
         }
 
         if (!ContainsActionId(stage.advanceTriggerActionIds, actionId))
         {
             Debug.Log($"[PatientScenarioController] Trainee action \"{actionId}\" doesn't match this stage's expected action id(s) - ignoring.");
+            OnIncorrectTraineeAction?.Invoke(actionId);
             return;
         }
 

@@ -108,6 +108,14 @@ public class ActionMenuController : MonoBehaviour
         // guard against with the identical check in their own Update()).
         if (WelcomeScreenController.IsCalibrationActive) return;
 
+        // Same reasoning as the calibration-UI check above, for the Escape-triggered quit
+        // confirmation: while it's up, a right-click landing on it shouldn't fall through to
+        // whatever 3D prop happens to sit behind it either.
+        if (QuitConfirmationController.IsOpen) return;
+
+        // Same reasoning again, for the incorrect-action notice.
+        if (IncorrectActionController.IsOpen) return;
+
         if (isMenuOpen)
         {
             // While open, this class does nothing but watch for Escape - button clicks are
@@ -336,7 +344,18 @@ public class ActionMenuController : MonoBehaviour
     private void CloseMenu()
     {
         menuUI.Hide();
-        SetWorldInteractionSuspended(false);
+
+        // OnActionSelected() calls TriggerAction() (which can synchronously raise
+        // PatientScenarioController.OnIncorrectTraineeAction, opening IncorrectActionController's
+        // notice) BEFORE calling CloseMenu() here - so at this exact point, a different modal may
+        // have already taken over the world-interaction lock this same frame, before the trainee
+        // ever saw control returned. Releasing it here too would immediately undo that modal's
+        // freeze; skip the release and let that modal's own dismissal restore it instead. (Not a
+        // concern for the quit confirmation - it can't open mid-menu-close since nothing in this
+        // call chain raises it.)
+        if (!IncorrectActionController.IsOpen)
+            SetWorldInteractionSuspended(false);
+
         isMenuOpen = false;
         currentTarget = null;
     }

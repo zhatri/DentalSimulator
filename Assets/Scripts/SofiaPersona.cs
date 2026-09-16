@@ -434,7 +434,8 @@ public class SofiaPersona : MonoBehaviour
         // this script has no idea the Canvas exists at all and would otherwise hit her collider
         // right through it.
         if (isHovering && leftPressedThisFrame && !isListening && !ActionMenuController.AnyMenuOpen
-            && !WelcomeScreenController.IsCalibrationActive)
+            && !WelcomeScreenController.IsCalibrationActive && !QuitConfirmationController.IsOpen
+            && !IncorrectActionController.IsOpen)
         {
             isListening = true;
             speechToTextAgent.StartListening();

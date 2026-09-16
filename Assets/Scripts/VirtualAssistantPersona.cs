@@ -382,7 +382,8 @@ not break character as the assistant and do not mention you are a language model
         // the Welcome/Scenario Selection calibration UI is up - see the identical guard/comment
         // in SofiaPersona.Update().
         if (isHovering && leftPressedThisFrame && !isListening && !ActionMenuController.AnyMenuOpen
-            && !WelcomeScreenController.IsCalibrationActive)
+            && !WelcomeScreenController.IsCalibrationActive && !QuitConfirmationController.IsOpen
+            && !IncorrectActionController.IsOpen)
         {
             isListening = true;
             speechToTextAgent.StartListening();

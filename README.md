@@ -18,6 +18,12 @@ Before wiring anything, confirm these all exist in `Assets/Scripts`:
 
 **Player/input:** `PlayerController.cs`, `PlayerInputAction.inputactions`
 
+**Pre-scenario calibration UI (Part 14):** `WelcomeScreenController.cs`, `ScenarioSelectionController.cs` — optional as far as the core simulation is concerned (everything above works fine with `SessionManager.startingState` set to `ScenarioActive` and no calibration UI at all), but this is the real, intended entry point for a trainee-facing build.
+
+**In-simulation quit confirmation (Part 15):** `QuitConfirmationController.cs` — optional; the simulation runs fine without it, this just adds an Escape-triggered "are you sure?" dialog mid-run.
+
+**Incorrect-action notice (Part 16):** `IncorrectActionController.cs` — optional; shows a deterministic "wrong action" notice whenever a trainee-performed action is rejected by `PatientScenarioController`.
+
 Legacy/optional, safe to ignore for this guide: `RemoteScenarioLoader.cs`, `RemoteCinematicCatalogLoader.cs`, `CsvUtil.cs`, `ScenarioTemplate.csv` (the Google Sheets path, superseded by the Flask backend), `TraineeActionTrigger.cs` (superseded by `InteractableActions.cs`/`ActionMenuController.cs` — see Part 8).
 
 ---
@@ -43,6 +49,7 @@ This should live on a GameObject that's active from the very start of the scene 
 5. Leave **Provider Id** as `OpenAI` (matches the `providerId` value already in that asset).
 6. Leave **On Token Received** empty unless you want to wire up a debug UI Text to show the fetched token for troubleshooting.
 7. This component's `[DefaultExecutionOrder(-1000)]` already makes it run early — no extra Script Execution Order setup needed, but if you ever see the OLD key still being used, that's the first thing to double check (Project Settings → Script Execution Order).
+8. **Auto Fetch**: leave **checked** here if you have no calibration UI (Part 14) in this scene — the token fetches/applies automatically at scene start exactly as before. **Uncheck it once Part 14 is built** — a trainee's "Use server's AI token" checkbox on the Scenario Selection screen is what decides this now, and `WelcomeScreenController` calls `BeginFetch()` itself only if that checkbox was left checked. Leaving Auto Fetch on AND having Part 14's UI also call `BeginFetch()` is harmless (the second call just logs a warning and does nothing, thanks to the double-call guard) but means the "leave it unchecked to keep my own token" option on the UI doesn't actually do what it says, since the fetch already happened at scene start regardless.
 
 ---
 
@@ -207,9 +214,10 @@ No event wiring needed on the prop itself beyond this — `ActionMenuController`
 
 1. On `Bootstrap`, Add Component → `RemoteScenarioApiLoader`.
 2. **Backend Config**: drag in the Part 1 asset.
-3. **Scenario Id**: the `scn_id` to load (matches `SCENARIO.scn_id` — `1` for the seed data).
+3. **Scenario Id**: the `scn_id` to load (matches `SCENARIO.scn_id` — `1` for the seed data). Ignored once Part 14's UI is driving this (it calls `SetScenarioId()` itself right before `BeginLoading()`), but harmless to leave as-is.
 4. **Timeout Seconds**: leave at 10.
 5. **Patient Scenario Controller**: drag in the `PatientScenarioController` you'll create in Part 11 (you can come back and set this after Part 11 if it's easier).
+6. **Auto Start Loading**: leave **checked** if you have no calibration UI (Part 14) in this scene — stages for **Scenario Id** above load automatically at scene start, same as always. **Uncheck it once Part 14 is built** — the trainee's own dropdown selection decides which scenario to load, and `WelcomeScreenController` calls `SetScenarioId()` then `BeginLoading()` itself, in that order, only once the trainee commits. Leaving this checked as well as wiring up Part 14 means the scene loads **Scenario Id**'s stages immediately at start AND (later) whatever the trainee picks — the first load isn't harmful, but it's wasted work and a confusing thing to see in the Console while testing.
 
 ---
 
@@ -231,7 +239,7 @@ No event wiring needed on the prop itself beyond this — `ActionMenuController`
 ## Part 12: SessionManager (starts the whole flow)
 
 1. This should already exist as a persistent GameObject (`DontDestroyOnLoad`).
-2. **Starting State**: set to `ScenarioActive` while testing the patient scenario in isolation (no selection/calibration screens built yet), or `ScenarioSelection` once those exist.
+2. **Starting State**: set to `ScenarioActive` while testing the patient scenario in isolation with no calibration UI in the scene at all. **Set to `ScenarioSelection` once Part 14 (Welcome Screen + Scenario Selection) is built** — `WelcomeScreenController` shows its own UI immediately regardless of this setting, but leaving `Starting State` at `ScenarioActive` alongside Part 14's UI would try to start the (wrong, default) scenario immediately AND show the calibration UI on top of it at the same time, which is confusing and pointless — `ScenarioSelection` is really just "don't auto-start anything, wait for a UI/script to call `BeginScenario()`/`SkipToScenarioActive()` explicitly," which is exactly what Part 14 does.
 3. **Patient Scenario Controller**: drag in the one from Part 11.
 
 ---
@@ -244,6 +252,80 @@ Covered in an earlier pass of this project — briefly, for completeness of the 
 2. **View Transform**: the desktop free-look camera (or the VR headset camera), parented under the player root so it inherits position when the CharacterController moves.
 3. **Enable Mouse Look**: on for the desktop build variant, off for the VR build variant.
 4. This is the same `PlayerController` referenced by `CinematicController` (Part 7) and read by `SofiaPersona`/`VirtualAssistantPersona`'s hover raycasts (via `Camera.main` or their explicit **Interaction Camera** field, which should point at this rig's camera).
+
+---
+
+## Part 14: WelcomeScreenController + ScenarioSelectionController (the real entry point)
+
+Two screens, matching the placeholder UI already built: **Welcome Screen** (title, Start/Exit) → **Scenario Selection** (dropdown, read-only description, "Use server's AI token" checkbox, Cancel/Start). Assumes your dropdown/description field are TextMeshPro's `TMP_Dropdown`/`TMP_InputField` — the same TMP-first convention as `SubtitleController`/the action menu — swap the two field types in `ScenarioSelectionController.cs` if your placeholders actually use Unity's legacy `Dropdown`/`InputField` instead.
+
+**14a. Add `ScenarioSelectionController` to your Scenario Selection panel:**
+
+1. Add Component → `ScenarioSelectionController` on the Scenario Selection panel's root (or a child of it).
+2. **Backend Config**: drag in the Part 1 asset.
+3. **Timeout Seconds**: leave at 10.
+4. **Scenario Dropdown**: drag in your `TMP_Dropdown`.
+5. **Description Field**: drag in your `TMP_InputField` — this component locks it read-only (`interactable`/`readOnly` both set false/true) in `Awake()`, so you don't need to configure that yourself in the Inspector. **Separately, check the field's own Line Type is set to `Multi Line Newline`** (Inspector → the `TMP_InputField` component itself, not its child Text object) — TMP_InputField defaults to `Single Line` in some creation flows, and a Single Line field never wraps text no matter what else is configured; it just clips at the right edge exactly like "cut off by the field's border." Multi Line Newline is what actually lets long text like a scenario description wrap onto further lines within the box. If the description can run long, also make the field tall enough (or add a Scroll Rect) so the wrapped lines aren't themselves clipped at the bottom.
+6. **Use Server Token Toggle**: drag in the "Use server's AI token" `Toggle`.
+7. **Cancel Button** / **Start Button**: drag in the panel's own Cancel/Start buttons — **not** the Welcome Screen's Start button, a different one.
+8. **Virtual Assistant Persona**: drag in the bot's `VirtualAssistantPersona` (Part 5) if you want the description read aloud on every selection change. Leave empty to disable the readback — the description field still updates either way.
+
+**14b. Add `WelcomeScreenController` to your Welcome Screen (or a dedicated empty GameObject):**
+
+1. Add Component → `WelcomeScreenController`.
+2. **Welcome Panel**: drag in the Welcome Screen's root GameObject — this needs to be the object that contains **everything** visible on that screen (background art included), not just the buttons. If your background image/blur/title text live directly on the Canvas as siblings of a smaller "buttons only" panel, either re-parent them all under one object and assign that, or use **Calibration Root** below instead.
+3. **Scenario Selection Panel**: drag in the Scenario Selection panel's root GameObject — same nesting requirement as step 2.
+3a. **Calibration Root** (optional): if your Canvas has anything shared between the two screens that lives OUTSIDE both panels — a full-screen background image or blur that's always there regardless of which panel is showing — drag its root GameObject in here. It gets deactivated too, on top of the two panels, the instant the trainee clicks Scenario Selection's Start. **This is the fix if you see the Welcome Screen's background/title still visibly overlaid on top of the running simulation after Start** — that symptom means something is sitting outside the two toggled panels and was never being hidden by toggling them alone.
+4. **Welcome Start Button**: drag in the Welcome Screen's own Start button (opens Scenario Selection — not the same button as 14a's **Start Button**, which actually launches the simulation).
+5. **Exit Button**: drag in the Welcome Screen's Exit button.
+6. **Scenario Selection Controller**: drag in the component from 14a.
+7. **Player Controller**: drag in the scene's `PlayerController` — disabled for the entire Welcome/Scenario Selection flow, re-enabled the instant the trainee commits, mirroring `ActionMenuController`'s identical field.
+8. **Crosshair**: optional, same idea as `ActionMenuController`'s own Crosshair field — hidden for the same duration.
+9. **Remote Scenario Api Loader**: drag in the one from Part 10. Make sure Part 10's **Auto Start Loading** is unchecked (see that Part's step 6) — otherwise the scene also loads whatever **Scenario Id** is sitting in the Inspector immediately at start, on top of whatever the trainee later picks.
+10. **Remote Open Ai Token Loader**: drag in the one from Part 2, if the "Use server's AI token" checkbox should actually do anything. Make sure Part 2's **Auto Fetch** is unchecked (see that Part's step 8) — otherwise the token already got applied at scene start regardless of what the trainee checks here.
+
+**14c. Go back to Part 12 and set `SessionManager.Starting State` to `ScenarioSelection`** (see that Part's updated step 2) — `WelcomeScreenController` doesn't read this value at all (it shows its UI in its own `Awake()`/`Start()` regardless), but leaving `Starting State` at `ScenarioActive` would race the (wrong, default) scenario into starting immediately alongside the calibration UI appearing on top of it.
+
+**What each button actually does, end to end:**
+- Welcome Screen **Start** → hides Welcome, shows Scenario Selection, triggers a fresh `GET /api/scenarios` fetch to populate the dropdown (every time this panel opens, not just once).
+- Selecting a different dropdown entry → updates the description field and (if wired) has the bot read the new description aloud.
+- Scenario Selection **Cancel** → hides Scenario Selection, shows Welcome Screen again. World interaction stays locked throughout — cancelling doesn't let the trainee wander off, it just goes back a screen.
+- Scenario Selection **Start** → hides both panels, unlocks player movement/rotation, optionally calls `RemoteOpenAiTokenLoader.BeginFetch()` (only if the checkbox was checked), calls `RemoteScenarioApiLoader.SetScenarioId()`/`BeginLoading()` for the chosen `scn_id`, and calls `SessionManager.Instance.SkipToScenarioActive()` — which is what actually calls `PatientScenarioController.BeginScenario()` and starts the first stage.
+- Welcome Screen **Exit** → quits the application (or stops Play mode, in the Editor).
+
+---
+
+## Part 15: QuitConfirmationController (Escape-triggered quit confirmation, mid-simulation)
+
+An "Are you sure? Your progress will be lost" dialog, shown when the trainee presses Escape during `ScenarioActive` — not during the Welcome/Scenario Selection flow, which already has its own Exit button and never shows this. Yes quits the app exactly like the Welcome Screen's Exit button; No closes the dialog and hands control straight back.
+
+1. Add Component → `QuitConfirmationController`, anywhere convenient (e.g. alongside `ActionMenuController`).
+2. **Confirmation Panel**: drag in the whole dialog's root GameObject (the box with the message and both buttons) — it's set inactive automatically in `Awake()`, regardless of how it was left in the Editor.
+3. **Yes Button** / **No Button**: drag in the dialog's two buttons.
+4. **Player Controller**: drag in the scene's `PlayerController` — same field/behavior as `ActionMenuController`'s and `WelcomeScreenController`'s own copies.
+5. **Crosshair**: optional, same idea as the other two controllers' Crosshair field.
+
+**How it behaves:** pressing Escape mid-simulation opens the dialog, unlocks the mouse, and disables movement/rotation — exactly like the action menu opening. Escape again (or clicking No) closes it and hands control straight back. Clicking Yes quits. It refuses to open at all if the action menu or the calibration UI is already up (so at most one modal is ever active), and — like those two — is checked by `SofiaPersona`/`VirtualAssistantPersona`'s hover-to-talk guard and by `ActionMenuController.Update()`, so it can't be talked or right-clicked through either.
+
+**Test:** mid-simulation, press Escape → confirm the dialog appears, the cursor frees up, and movement/rotation/hover-to-talk/right-click-menu all stop responding to the world behind it. Click No → confirm everything resumes exactly as it was. Press Escape again, click Yes → confirm the app quits (or Play mode stops, in the Editor). Also confirm Escape does nothing while the action menu or the Welcome/Scenario Selection UI is already open, rather than stacking a second dialog on top.
+
+---
+
+## Part 16: IncorrectActionController (deterministic "wrong action" notice)
+
+Shows an "Okay"-only notice whenever `PatientScenarioController.ReportTraineeAction()` rejects a trainee's chosen action - either the current stage doesn't accept action-based advancement at all, or the specific action doesn't match what this stage expects (e.g. picking "Give the injection" before the stage that expects it). Freezes movement/rotation/interactions exactly like the quit confirmation; the single Okay button just dismisses it and hands control back.
+
+1. Add Component → `IncorrectActionController`, anywhere convenient.
+2. **Notification Panel**: drag in the whole notice's root GameObject — set inactive automatically in `Awake()`, regardless of how it was left in the Editor.
+3. **Okay Button**: drag in the notice's single button.
+4. **Player Controller**: drag in the scene's `PlayerController` — same field/behavior as the other three world-interaction-locking controllers.
+5. **Crosshair**: optional, same idea as the others' Crosshair field.
+
+**How it behaves:** it subscribes to `PatientScenarioController.Instance.OnIncorrectTraineeAction` in its own `Start()` (not `Awake()` — see the in-code comment on why that ordering matters), so it needs a `PatientScenarioController` present in the scene; a missing one logs a clear Console error at startup rather than the notice just silently never appearing. It has no Escape/manual-trigger path of its own - it only ever opens in response to that event, and like the quit confirmation and calibration UI, it's checked by `SofiaPersona`/`VirtualAssistantPersona`'s hover-to-talk guard and by `ActionMenuController.Update()`, so it can't be talked or right-clicked through either.
+
+**One subtlety worth knowing if you ever touch `ActionMenuController.CloseMenu()`:** picking a wrong action from the action menu triggers this notice *before* the menu finishes closing (`TriggerAction()` runs before `CloseMenu()` in `OnActionSelected()`), so `CloseMenu()` now checks `IncorrectActionController.IsOpen` before releasing its own world-interaction lock - otherwise the menu closing would immediately undo the freeze this notice just applied, in the same frame, before the trainee ever saw it. This is already handled in the shipped code; just don't remove that check if `CloseMenu()` is ever refactored.
+
+**Test:** trigger a wrong action from the action menu (pick an action id that isn't the current stage's expected one, or any action on a stage with no action-based advancement configured at all) → confirm the notice appears immediately (not after a one-frame flicker of regained control), movement/rotation/hover-to-talk/right-click all stop, and the Console logs `[IncorrectActionController] Incorrect action "..." - showing notice.` Click Okay → confirm everything resumes exactly as it was, with no double-suspend/double-release side effects from the action menu having also just closed.
 
 ---
 
@@ -281,6 +363,8 @@ CinematicController (VideoPlayer auto-added)
 
 ActionMenuController
 
+QuitConfirmationController
+
 DentalChair (example prop)
  ├─ Collider
  └─ InteractableActions (recline_chair / set_upright, ...)
@@ -290,8 +374,22 @@ Canvas
  ├─ CutsceneOverlay (inactive)
  │   └─ VideoImage (RawImage)
  ├─ ActionMenuBackdrop (inactive, full-screen Button)
- └─ ActionMenuPanel (inactive) [+ ActionMenuUI on the Canvas or nearby]
-     └─ ActionButtonTemplate (inactive)
+ ├─ ActionMenuPanel (inactive) [+ ActionMenuUI on the Canvas or nearby]
+ │   └─ ActionButtonTemplate (inactive)
+ ├─ QuitConfirmationPanel (inactive) [+ QuitConfirmationController, anywhere convenient]
+ │   ├─ YesButton
+ │   └─ NoButton
+ ├─ IncorrectActionPanel (inactive) [+ IncorrectActionController, anywhere convenient]
+ │   └─ OkayButton
+ ├─ WelcomePanel (active by default) [+ WelcomeScreenController, anywhere convenient]
+ │   ├─ StartButton (opens Scenario Selection)
+ │   └─ ExitButton
+ └─ ScenarioSelectionPanel (inactive by default) [+ ScenarioSelectionController]
+     ├─ ScenarioDropdown (TMP_Dropdown)
+     ├─ DescriptionField (TMP_InputField, read-only)
+     ├─ UseServerTokenToggle
+     ├─ CancelButton
+     └─ StartButton (launches the simulation)
 
 SessionManager (persistent, DontDestroyOnLoad)
 ```
@@ -312,3 +410,6 @@ Work through these in order — each one isolates a different part of the chain,
 8. **Cutscene**: on a stage with a `cinematicId`, confirm the letterbox overlay appears, the video plays, movement/talk are disabled during it, and everything resumes correctly afterward.
 9. **Pose/position**: confirm Sofia visibly teleports/animates correctly on a stage with a `sofiaPositionMarkerId` set.
 10. **Debug key**: press `N` at any point and confirm it force-advances regardless of what's currently happening — useful for skipping past a broken stage while debugging the rest of the chain.
+11. **Quit confirmation (Part 15)**: mid-simulation, press Escape → confirm the dialog appears, cursor unlocks, and movement/hover-to-talk/right-click all stop. Click No → confirm full control returns. Press Escape, click Yes → confirm the app quits/Play mode stops. Confirm Escape does nothing while the action menu or the calibration UI is already open.
+12. **Incorrect-action notice (Part 16)**: pick a wrong action from the action menu → confirm the notice appears immediately (no flicker of regained control), movement/hover-to-talk/right-click all stop, and the Console logs the incorrect-action line. Click Okay → confirm full control returns.
+13. **Calibration UI (Part 14)**: Press Play, confirm the Welcome Screen shows immediately and the player can't move/look around behind it (movement/rotation should do nothing, only the mouse cursor should respond). Click Start → confirm Scenario Selection appears, the dropdown populates with every `Published` scenario from the backend, the description field updates (read-only — try clicking into it and confirm you can't type), and — if wired — the bot reads the first scenario's description aloud automatically. Change the dropdown selection a few times and confirm the description and the bot's readback both update each time. Click Cancel → confirm it returns to the Welcome Screen (still locked, not the simulation). Click Start again, pick a scenario, toggle "Use server's AI token" off, click Scenario Selection's own Start → confirm both panels close, the camera/movement immediately respond to input again, the Console shows `[RemoteScenarioApiLoader] Loaded N stage(s) for scn_id=...` for the CHOSEN scenario (not whatever was left in the Inspector), and the first stage begins exactly as in test 3 above. Repeat once more with the checkbox ON and confirm `[RemoteOpenAiTokenLoader] OpenAI token fetched from backend.` appears this time (it should NOT have appeared during the checkbox-off run).
