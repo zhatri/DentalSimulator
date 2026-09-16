@@ -428,8 +428,13 @@ public class SofiaPersona : MonoBehaviour
         // push-to-talk buttons normally work (you press the button, not "end up over it").
         // Also refuses to start while ActionMenuController's right-click menu is open, so a
         // left-click meant for a menu button can't also be read as "start talking to Sofia"
-        // if her collider happens to be underneath the menu on screen.
-        if (isHovering && leftPressedThisFrame && !isListening && !ActionMenuController.AnyMenuOpen)
+        // if her collider happens to be underneath the menu on screen - and refuses to start
+        // while the Welcome/Scenario Selection calibration UI is up, for the identical reason:
+        // that screen's own Canvas sits visually in front of Sofia, but a Physics.Raycast from
+        // this script has no idea the Canvas exists at all and would otherwise hit her collider
+        // right through it.
+        if (isHovering && leftPressedThisFrame && !isListening && !ActionMenuController.AnyMenuOpen
+            && !WelcomeScreenController.IsCalibrationActive)
         {
             isListening = true;
             speechToTextAgent.StartListening();

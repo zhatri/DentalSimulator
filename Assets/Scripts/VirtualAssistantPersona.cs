@@ -322,6 +322,29 @@ not break character as the assistant and do not mention you are a language model
         OnAdvanceIntentDetected?.Invoke();
     }
 
+    // Public, deliberately separate from every other speech path above - lets an outside
+    // caller (ScenarioSelectionController, reading a scenario's scn_description aloud as the
+    // trainee browses the dropdown) have the bot speak arbitrary text with none of this
+    // class's own stage/hint/confirmation machinery involved: no LLM call, no advance
+    // signal, no hintRequestCount bump, nothing that assumes a patient scenario is even
+    // running yet - appropriate for the Welcome/Scenario Selection screen, which happens
+    // BEFORE PatientScenarioController.BeginScenario() is ever called. Interrupts whatever
+    // the bot was previously saying the same way every other SpeakText() call already does
+    // (MBB's own TextToSpeechAgent behaviour, unchanged here) - expected and fine for reading
+    // a fresh description the instant the trainee changes the dropdown selection.
+    public void SpeakAnnouncement(string text)
+    {
+        if (textToSpeechAgent == null)
+        {
+            Debug.LogWarning("[VirtualAssistantPersona] SpeakAnnouncement() called but no TextToSpeechAgent is assigned - ignoring.");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(text)) return;
+
+        subtitleController?.ShowVirtualAssistantLine(text);
+        textToSpeechAgent.SpeakText(text);
+    }
+
     // No-LlmAgent fallback path only (see OnTranscriptReceived) - speaks stageHint verbatim,
     // never advances.
     private IEnumerator SpeakLineNoAdvance(string line)
@@ -355,9 +378,11 @@ not break character as the assistant and do not mention you are a language model
         bool leftReleasedThisFrame = Mouse.current.leftButton.wasReleasedThisFrame;
         bool leftHeld = Mouse.current.leftButton.isPressed;
 
-        // Also refuses to start while ActionMenuController's right-click menu is open - see
-        // the identical guard/comment in SofiaPersona.Update().
-        if (isHovering && leftPressedThisFrame && !isListening && !ActionMenuController.AnyMenuOpen)
+        // Also refuses to start while ActionMenuController's right-click menu is open, OR while
+        // the Welcome/Scenario Selection calibration UI is up - see the identical guard/comment
+        // in SofiaPersona.Update().
+        if (isHovering && leftPressedThisFrame && !isListening && !ActionMenuController.AnyMenuOpen
+            && !WelcomeScreenController.IsCalibrationActive)
         {
             isListening = true;
             speechToTextAgent.StartListening();

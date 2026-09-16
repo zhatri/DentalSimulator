@@ -66,6 +66,20 @@ public class SessionManager : MonoBehaviour
         }
     }
 
+    // Jumps straight to ScenarioActive, bypassing Calibration/ReadinessCheck entirely - call
+    // this from the Scenario Selection screen's own Start button (see
+    // ScenarioSelectionController/WelcomeScreenController) rather than calling AdvanceState()
+    // three times in a row to walk through the intermediate states. Those two states were
+    // designed (project doc section 9) around a room-scale physical walk-to-a-mark
+    // calibration and a separate bot-mediated readiness check - both superseded once the
+    // deployment was confirmed as seated/classroom (section 17) and the team instead built a
+    // single Welcome -> Scenario Selection UI flow that already covers "pick a scenario, then
+    // explicitly commit to starting" without needing either intermediate state. Left as a
+    // separate method rather than changing what AdvanceState() does for ScenarioSelection, so
+    // a scene that still wants the original step-by-step flow (e.g. testing a future real
+    // calibration/readiness screen) isn't affected.
+    public void SkipToScenarioActive() => EnterState(SessionState.ScenarioActive);
+
     private void EnterState(SessionState state)
     {
         CurrentState = state;

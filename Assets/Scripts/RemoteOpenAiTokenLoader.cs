@@ -44,6 +44,17 @@ public class RemoteOpenAiTokenLoader : MonoBehaviour
 
     [SerializeField] private string providerId = "OpenAI";
 
+    [Tooltip("On: fetches and applies the token automatically at Awake(), before anything else " +
+             "has a chance to decide otherwise - today's original, zero-UI behaviour, unchanged. " +
+             "Off: nothing happens until something else calls BeginFetch() explicitly. Turn this " +
+             "off once a Scenario Selection screen exists with a \"Use server's AI token\" " +
+             "checkbox (see ScenarioSelectionController) - it's the trainee's own choice at that " +
+             "point, not something that should already be decided before they've even seen the " +
+             "checkbox. Mirrors RemoteScenarioApiLoader's identical autoStartLoading/BeginLoading() " +
+             "pattern, and for the same reason: a UI-driven decision made after Awake() has " +
+             "already run needs an explicit call, not a race against script execution order.")]
+    [SerializeField] private bool autoFetch = true;
+
     [Tooltip("Fires once the token is fetched (before/independent of the CredentialStorage " +
              "update attempt above) - wire this up for logging/debug display if useful.")]
     [SerializeField] private StringUnityEvent onTokenReceived;
@@ -51,8 +62,27 @@ public class RemoteOpenAiTokenLoader : MonoBehaviour
     public string Token { get; private set; }
     public event Action<string> OnTokenReceived;
 
+    private bool hasStartedFetching = false;
+
     private void Awake()
     {
+        if (autoFetch) BeginFetch();
+    }
+
+    // Call this explicitly when Auto Fetch is off (see its tooltip) - typically from
+    // ScenarioSelectionController's Start button handler, only when the trainee left "Use
+    // server's AI token" checked. Guarded against a double call the same way
+    // RemoteScenarioApiLoader.BeginLoading() is, for the identical reason: firing the fetch/
+    // apply logic twice could race two results into CredentialStorage in an unpredictable
+    // order.
+    public void BeginFetch()
+    {
+        if (hasStartedFetching)
+        {
+            Debug.LogWarning("[RemoteOpenAiTokenLoader] BeginFetch() called again after fetching already started - ignoring.");
+            return;
+        }
+        hasStartedFetching = true;
         StartCoroutine(Fetch());
     }
 

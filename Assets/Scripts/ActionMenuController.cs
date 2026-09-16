@@ -99,6 +99,15 @@ public class ActionMenuController : MonoBehaviour
 
     private void Update()
     {
+        // While the Welcome/Scenario Selection calibration UI is up, this class does nothing
+        // at all - no hover detection, no right-click menu. Without this, a right-click landing
+        // on the calibration UI's visible screen position would still fire a Physics.Raycast
+        // straight through it into the 3D scene and could pop an action menu for whatever prop
+        // happens to sit behind that UI, since raycasting here has no built-in awareness of any
+        // UI Canvas covering the screen (same underlying issue SofiaPersona/VirtualAssistantPersona
+        // guard against with the identical check in their own Update()).
+        if (WelcomeScreenController.IsCalibrationActive) return;
+
         if (isMenuOpen)
         {
             // While open, this class does nothing but watch for Escape - button clicks are

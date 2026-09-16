@@ -277,41 +277,16 @@ public class RemoteScenarioApiLoader : MonoBehaviour
     // policy onto both, when they actually need different ones.
     private IEnumerator FetchAndApplyScenarioPersona()
     {
-        string url = $"{backendConfig.baseUrl.TrimEnd('/')}/api/scenarios";
-        using UnityWebRequest request = UnityWebRequest.Get(url);
-        request.timeout = Mathf.CeilToInt(timeoutSeconds);
+        ScenarioDto[] scenarios = null;
+        string fetchError = null;
+        yield return FetchScenarioList(backendConfig, timeoutSeconds,
+            onSuccess: list => scenarios = list,
+            onError: err => fetchError = err);
 
-        UnityWebRequestAsyncOperation operation;
-        try
+        if (scenarios == null)
         {
-            operation = request.SendWebRequest();
-        }
-        catch (Exception ex)
-        {
-            Debug.LogWarning($"[RemoteScenarioApiLoader] SendWebRequest() threw for \"{url}\" ({ex.GetType().Name}: {ex.Message}) - " +
-                               "continuing with Sofia's Inspector-configured patientName/medicalHistory as a fallback persona.");
-            yield break;
-        }
-
-        yield return operation;
-
-        if (request.result != UnityWebRequest.Result.Success)
-        {
-            Debug.LogWarning($"[RemoteScenarioApiLoader] Failed to fetch the scenario list " +
-                               $"({request.error}, HTTP {request.responseCode}) - continuing with Sofia's Inspector-configured " +
+            Debug.LogWarning($"[RemoteScenarioApiLoader] {fetchError} - continuing with Sofia's Inspector-configured " +
                                "patientName/medicalHistory as a fallback persona.");
-            yield break;
-        }
-
-        ScenarioDto[] scenarios;
-        try
-        {
-            scenarios = JsonArrayUtil.FromJsonArray<ScenarioDto>(request.downloadHandler.text);
-        }
-        catch (Exception ex)
-        {
-            Debug.LogWarning($"[RemoteScenarioApiLoader] Failed to parse the scenario list response ({ex.Message}) - " +
-                               "continuing with Sofia's Inspector-configured patientName/medicalHistory as a fallback persona.");
             yield break;
         }
 
@@ -326,6 +301,69 @@ public class RemoteScenarioApiLoader : MonoBehaviour
 
         patientScenarioController.ApplyScenarioPersona(dto.scn_patient_profile, dto.scn_guardrail);
         Debug.Log($"[RemoteScenarioApiLoader] Applied scenario persona for scn_id={scenarioId} (\"{dto.scn_name}\") from the backend.");
+    }
+
+    // Shared GET /api/scenarios fetch+parse - extracted out so FetchAndApplyScenarioPersona()
+    // above and ScenarioSelectionController (the Welcome/Scenario Selection UI, built once
+    // that screen actually existed - see project doc section 46) share one implementation
+    // instead of two copies that could quietly drift apart, the same reasoning that already
+    // pulled CsvUtil.ParseCsv() out for RemoteScenarioLoader/RemoteCinematicCatalogLoader to
+    // share. Static and instance-independent on purpose - a UI controller populating a
+    // dropdown has no reason to need a scenarioId, a PatientScenarioController reference, or
+    // any of this component's other per-scenario state, just the raw list.
+    //
+    // Invokes exactly one of onSuccess/onError, never both, never neither - callers can treat
+    // "did onSuccess fire" as the complete success/failure signal without checking anything
+    // else. onError receives a plain, already-formatted message (no "[ClassName]" prefix or
+    // Debug.Log call baked in) so each caller can log/display it however fits its own context
+    // (a fallback-persona warning here, a descriptionField error message in the UI there).
+    public static IEnumerator FetchScenarioList(BackendConfig backendConfig, float timeoutSeconds,
+                                                 Action<ScenarioDto[]> onSuccess, Action<string> onError)
+    {
+        if (backendConfig == null || string.IsNullOrWhiteSpace(backendConfig.baseUrl))
+        {
+            onError?.Invoke("No BackendConfig/baseUrl assigned");
+            yield break;
+        }
+
+        string url = $"{backendConfig.baseUrl.TrimEnd('/')}/api/scenarios";
+        using UnityWebRequest request = UnityWebRequest.Get(url);
+        request.timeout = Mathf.CeilToInt(timeoutSeconds);
+
+        // Same "SendWebRequest() can throw synchronously" guard as LoadAndApply() above -
+        // see that method's comment for the full explanation (insecure-connection check in a
+        // built Player, try/catch can't wrap a yield return directly).
+        UnityWebRequestAsyncOperation operation;
+        try
+        {
+            operation = request.SendWebRequest();
+        }
+        catch (Exception ex)
+        {
+            onError?.Invoke($"SendWebRequest() threw for \"{url}\" ({ex.GetType().Name}: {ex.Message})");
+            yield break;
+        }
+
+        yield return operation;
+
+        if (request.result != UnityWebRequest.Result.Success)
+        {
+            onError?.Invoke($"Failed to fetch the scenario list ({request.error}, HTTP {request.responseCode})");
+            yield break;
+        }
+
+        ScenarioDto[] scenarios;
+        try
+        {
+            scenarios = JsonArrayUtil.FromJsonArray<ScenarioDto>(request.downloadHandler.text);
+        }
+        catch (Exception ex)
+        {
+            onError?.Invoke($"Failed to parse the scenario list response ({ex.Message})");
+            yield break;
+        }
+
+        onSuccess?.Invoke(scenarios);
     }
 
     private static PatientStageDefinition ToStageDefinition(StageDto dto)
