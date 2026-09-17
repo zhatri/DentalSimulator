@@ -70,30 +70,17 @@ public class ActionMenuUI : MonoBehaviour
 
     private void Awake()
     {
-        buttonTemplate.gameObject.SetActive(false);
-        panelRoot.gameObject.SetActive(false);
-
-        if (backdropButton != null)
-        {
-            backdropButton.gameObject.SetActive(false);
-            backdropButton.onClick.AddListener(() => OnDismissed?.Invoke());
-        }
-
-        if (cancelButton != null)
-        {
-            // Force-active regardless of how it was left in the Editor - same safety-net
-            // reasoning as the SetActive(false) calls above for the other pieces, just
-            // inverted, since this one really should always be visible whenever panelRoot is.
-            cancelButton.gameObject.SetActive(true);
-            cancelButton.onClick.AddListener(() => OnDismissed?.Invoke());
-        }
-        else
-        {
-            Debug.LogWarning("[ActionMenuUI] No Cancel Button assigned - trainees can still dismiss the " +
-                              "menu by clicking away or pressing Escape, but there's no explicit \"Cancel\" " +
-                              "option in the list itself. Assign one in the Inspector to add it.");
-        }
-
+        // Cache the Canvas reference (and run every render-mode diagnostic below) BEFORE
+        // deactivating panelRoot further down. GetComponentInParent<Canvas>() does NOT search
+        // inactive GameObjects by default - so if panelRoot itself IS the Canvas GameObject
+        // (a valid, common setup where the whole Canvas doubles as the menu's root, rather than
+        // a separate nested panel under it), deactivating it first would make this call search
+        // starting from an already-inactive object and silently miss an entirely real,
+        // correctly-configured Canvas sitting right there on itself - producing exactly the
+        // false-positive "panelRoot isn't under a Canvas at all" warning this was hit with, even
+        // though positioning happened to still work by coincidence (the fallback path this warning
+        // triggers computes the same math as the correct one whenever Canvas Camera is left empty,
+        // which is the normal, correct setting for Screen Space - Overlay anyway).
         rootCanvas = panelRoot.GetComponentInParent<Canvas>();
         if (rootCanvas == null)
         {
@@ -118,6 +105,30 @@ public class ActionMenuUI : MonoBehaviour
             Debug.LogWarning("[ActionMenuUI] Canvas Render Mode is Screen Space - Camera, but neither this component's Canvas " +
                               "Camera field nor the Canvas's own Render Camera is set - screen-to-UI conversion needs a camera " +
                               "in this mode and positioning will be wrong without one.");
+        }
+
+        buttonTemplate.gameObject.SetActive(false);
+        panelRoot.gameObject.SetActive(false);
+
+        if (backdropButton != null)
+        {
+            backdropButton.gameObject.SetActive(false);
+            backdropButton.onClick.AddListener(() => OnDismissed?.Invoke());
+        }
+
+        if (cancelButton != null)
+        {
+            // Force-active regardless of how it was left in the Editor - same safety-net
+            // reasoning as the SetActive(false) calls above for the other pieces, just
+            // inverted, since this one really should always be visible whenever panelRoot is.
+            cancelButton.gameObject.SetActive(true);
+            cancelButton.onClick.AddListener(() => OnDismissed?.Invoke());
+        }
+        else
+        {
+            Debug.LogWarning("[ActionMenuUI] No Cancel Button assigned - trainees can still dismiss the " +
+                              "menu by clicking away or pressing Escape, but there's no explicit \"Cancel\" " +
+                              "option in the list itself. Assign one in the Inspector to add it.");
         }
     }
 
