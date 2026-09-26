@@ -112,3 +112,8 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# Checked-in standalone session-model checks (not generated Unity projects).
+!Tests/SessionRecordChecks/SessionRecordChecks.csproj
+/Tests/SessionRecordChecks/bin/
+/Tests/SessionRecordChecks/obj/

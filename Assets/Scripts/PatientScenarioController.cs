@@ -60,6 +60,11 @@ public class PatientScenarioController : MonoBehaviour
     [SerializeField] private bool allowDebugAdvanceKey = true;
     [SerializeField] private UnityEngine.InputSystem.Key debugAdvanceKey = UnityEngine.InputSystem.Key.N;
 
+    private string trackingScenarioId;
+    private bool scenarioRunning, transitioning;
+    public bool IsScenarioRunning => scenarioRunning && !transitioning;
+    public void SetTrackingScenarioId(string id) => trackingScenarioId = id;
+
     private int currentStageIndex = -1;
     private bool subscribedToSofia = false;
     private bool subscribedToVirtualAssistant = false;
@@ -150,7 +155,7 @@ public class PatientScenarioController : MonoBehaviour
 
     private void TryStartIfReady()
     {
-        if (!sessionRequestedStart || !stagesReady) return;
+        if (!sessionRequestedStart || !stagesReady || scenarioRunning) return;
 
         if (stageSequence == null || stageSequence.stages == null || stageSequence.stages.Length == 0)
         {
@@ -189,12 +194,16 @@ public class PatientScenarioController : MonoBehaviour
             subscribedToVirtualAssistant = true;
         }
 
+        scenarioRunning = true;
+        sessionRequestedStart = false;
+        SessionTelemetry.Ensure().Begin(trackingScenarioId ?? stageSequence.name, stageSequence.stages.Length);
         currentStageIndex = 0;
         EnterCurrentStage();
     }
 
     private void OnDestroy()
     {
+        if (scenarioRunning && Instance == this) SessionTelemetry.Instance?.Finish(false);
         if (subscribedToSofia && sofiaPersona != null)
             sofiaPersona.OnAdvanceIntentDetected -= HandleConversationalAdvanceIntent;
 
@@ -216,6 +225,7 @@ public class PatientScenarioController : MonoBehaviour
     // transition), this refuses to act on it.
     private void HandleConversationalAdvanceIntent()
     {
+        if (!IsScenarioRunning) return;
         var stage = GetCurrentStage();
         if (stage == null || !stage.conversationCanAdvanceStage)
         {
@@ -223,6 +233,7 @@ public class PatientScenarioController : MonoBehaviour
             return;
         }
 
+        SessionTelemetry.Instance?.Log("conversation_advance", "system");
         AdvanceStage();
     }
 
@@ -233,10 +244,12 @@ public class PatientScenarioController : MonoBehaviour
     // deterministic AdvanceStage() as every other trigger source; only the detection differs.
     public void ReportTraineeAction(string actionId)
     {
+        if (!IsScenarioRunning || string.IsNullOrWhiteSpace(actionId)) return;
         var stage = GetCurrentStage();
         if (stage == null || !stage.traineeActionCanAdvanceStage)
         {
             Debug.LogWarning($"[PatientScenarioController] Ignoring trainee action \"{actionId}\" - current stage doesn't allow action-based advancement.");
+            SessionTelemetry.Instance?.Log("incorrect_action", "trainee", actionId);
             OnIncorrectTraineeAction?.Invoke(actionId);
             return;
         }
@@ -244,10 +257,12 @@ public class PatientScenarioController : MonoBehaviour
         if (!ContainsActionId(stage.advanceTriggerActionIds, actionId))
         {
             Debug.Log($"[PatientScenarioController] Trainee action \"{actionId}\" doesn't match this stage's expected action id(s) - ignoring.");
+            SessionTelemetry.Instance?.Log("incorrect_action", "trainee", actionId);
             OnIncorrectTraineeAction?.Invoke(actionId);
             return;
         }
 
+        SessionTelemetry.Instance?.Log("correct_action", "trainee", actionId);
         Debug.Log($"[PatientScenarioController] Advancing stage from trainee action \"{actionId}\".");
         AdvanceStage();
     }
@@ -284,12 +299,15 @@ public class PatientScenarioController : MonoBehaviour
     // conversation persona as before.
     public void AdvanceStage()
     {
-        if (stageSequence == null) return;
+        if (stageSequence == null || !IsScenarioRunning) return;
 
+        SessionTelemetry.Instance?.Log("stage_completed", "system");
         currentStageIndex++;
 
         if (currentStageIndex >= stageSequence.stages.Length)
         {
+            scenarioRunning = false;
+            SessionTelemetry.Instance?.Finish(true);
             Debug.Log("[PatientScenarioController] Final stage complete - handing off to Debrief.");
             if (SessionManager.Instance != null) SessionManager.Instance.AdvanceState();
             return;
@@ -304,6 +322,8 @@ public class PatientScenarioController : MonoBehaviour
     // needed for "the first stage" versus any other.
     private void EnterCurrentStage()
     {
+        transitioning = true;
+        SessionTelemetry.Instance?.EnterStage(stageSequence.stages[currentStageIndex].stageId);
         var stage = stageSequence.stages[currentStageIndex];
 
         if (!string.IsNullOrWhiteSpace(stage.cinematicId) && cinematicController != null)
@@ -314,6 +334,8 @@ public class PatientScenarioController : MonoBehaviour
 
     private void ApplyCurrentStage()
     {
+        if (!scenarioRunning) return;
+        transitioning = false;
         var stage = stageSequence.stages[currentStageIndex];
         Debug.Log($"[PatientScenarioController] Entering stage \"{stage.stageId}\" ({stage.stageOrder}).");
 
@@ -517,6 +539,7 @@ public class PatientScenarioController : MonoBehaviour
 
         if (UnityEngine.InputSystem.Keyboard.current[debugAdvanceKey].wasPressedThisFrame)
         {
+            if (IsScenarioRunning) SessionTelemetry.Instance?.Log("debug_advance", "system", "Stage advanced using debug key; review required.");
             AdvanceStage();
         }
     }

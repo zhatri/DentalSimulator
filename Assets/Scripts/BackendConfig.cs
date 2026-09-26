@@ -14,4 +14,7 @@ public class BackendConfig : ScriptableObject
              "your machine's actual LAN IP here instead (e.g. http://192.168.1.23:5000) once " +
              "you're testing on-device rather than in the Editor/desktop simulator.")]
     public string baseUrl = "http://127.0.0.1:5000";
+
+    [Tooltip("Portal results POST route. Leave blank until the portal supports the documented SessionRecord contract.")]
+    public string sessionResultsPath = "";
 }

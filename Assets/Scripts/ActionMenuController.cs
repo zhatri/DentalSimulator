@@ -99,6 +99,7 @@ public class ActionMenuController : MonoBehaviour
 
     private void Update()
     {
+        if (SessionTelemetry.Instance != null && SessionTelemetry.Instance.IsDebriefVisible) return;
         // While the Welcome/Scenario Selection calibration UI is up, this class does nothing
         // at all - no hover detection, no right-click menu. Without this, a right-click landing
         // on the calibration UI's visible screen position would still fire a Physics.Raycast

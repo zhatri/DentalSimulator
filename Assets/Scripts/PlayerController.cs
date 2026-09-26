@@ -98,6 +98,7 @@ public class PlayerController : MonoBehaviour
 
     private void Update()
     {
+        if (SessionTelemetry.Instance != null && SessionTelemetry.Instance.IsDebriefVisible) return;
         if (viewTransform == null) return;
 
         if (enableMouseLook)
