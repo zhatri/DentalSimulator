@@ -165,8 +165,11 @@ public class SofiaPersona : MonoBehaviour
         textToSpeechAgent.onSpeakFinished.RemoveListener(PlayNextInQueue);
     }
 
+    private string trackingSessionId, trackingStageId;
+
     private void OnTranscriptReceived(string transcript)
     {
+        if (PatientScenarioController.Instance == null || !PatientScenarioController.Instance.IsScenarioRunning) return;
         if (string.IsNullOrWhiteSpace(transcript))
         {
             Debug.LogWarning("[SofiaPersona] Empty transcript - not sending to LLM.");
@@ -183,12 +186,15 @@ public class SofiaPersona : MonoBehaviour
         // a second, overlapping SendPromptAsync call from firing a second full reply -
         // a second, entirely independent cause of "it responded twice" that has
         // nothing to do with the streaming/sentence-chunking behaviour below.
-        if (isAwaitingResponse)
+        if (isAwaitingResponse || isSpeaking)
         {
             Debug.LogWarning($"[SofiaPersona] Ignoring transcript \"{transcript}\" - still awaiting a response to the previous turn.");
             return;
         }
 
+        trackingSessionId = SessionTelemetry.Instance?.Current?.sessionId;
+        trackingStageId = SessionTelemetry.Instance?.CurrentStageId;
+        SessionTelemetry.Instance?.Log("conversation", "trainee_to_patient", transcript);
         advancedThisTurn = false;
         pendingPhraseAdvance = false;
 
@@ -410,6 +416,7 @@ public class SofiaPersona : MonoBehaviour
         // (RespondWithFixedAdvance funnels through FlushRemainder -> EnqueueSpeech -> here
         // just like any LLM-generated line, so it needs no separate subtitle hook).
         subtitleController?.ShowSofiaLine(next);
+        SessionTelemetry.Instance?.LogDialogue(trackingSessionId, trackingStageId, "conversation", "patient", next);
         textToSpeechAgent.SpeakText(next);
     }
 

@@ -136,6 +136,8 @@ public class RemoteScenarioApiLoader : MonoBehaviour
                                "per scene load) - reload the scene instead.");
             return;
         }
+        patientScenarioController?.SetTrackingScenarioId(scenarioId.ToString());
+        SessionTelemetry.Ensure().Configure(backendConfig);
         hasStartedLoading = true;
         StartCoroutine(LoadAndApply());
     }

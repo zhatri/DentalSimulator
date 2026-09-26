@@ -167,8 +167,11 @@ public class VirtualAssistantPersona : MonoBehaviour
                   $"\"{(string.IsNullOrWhiteSpace(currentHintText) ? "(none)" : currentHintText)}\"");
     }
 
+    private string trackingSessionId, trackingStageId;
+
     private void OnTranscriptReceived(string transcript)
     {
+        if (PatientScenarioController.Instance == null || !PatientScenarioController.Instance.IsScenarioRunning) return;
         if (string.IsNullOrWhiteSpace(transcript))
         {
             Debug.LogWarning("[VirtualAssistantPersona] Empty transcript - ignoring.");
@@ -185,11 +188,15 @@ public class VirtualAssistantPersona : MonoBehaviour
 
         // Deterministic confirmation check FIRST, and it always wins - this never touches
         // the LLM even when one is assigned. See class comment for why this stays this way.
+        trackingSessionId = SessionTelemetry.Instance?.Current?.sessionId;
+        trackingStageId = SessionTelemetry.Instance?.CurrentStageId;
+        SessionTelemetry.Instance?.Log("conversation", "trainee_to_assistant", transcript);
         bool confirmationMatched = confirmationCanAdvance && ContainsPhrase(transcript, confirmationTriggerPhrases);
 
         if (confirmationMatched && !string.IsNullOrWhiteSpace(confirmationResponse))
         {
             Debug.Log($"[VirtualAssistantPersona] Confirmation phrase matched - replying \"{confirmationResponse}\" and advancing.");
+            isAwaitingResponse = true;
             StartCoroutine(SpeakConfirmationThenAdvance(confirmationResponse));
             return;
         }
@@ -199,6 +206,7 @@ public class VirtualAssistantPersona : MonoBehaviour
         if (llmAgent != null)
         {
             hintRequestCount++;
+            SessionTelemetry.Instance?.Log("hint_requested", "trainee", transcript);
             llmAgent.SystemPrompt = BuildHintSystemPrompt();
 
             isAwaitingResponse = true;
@@ -208,6 +216,9 @@ public class VirtualAssistantPersona : MonoBehaviour
         else if (!string.IsNullOrWhiteSpace(currentHintText))
         {
             Debug.Log("[VirtualAssistantPersona] No LlmAgent assigned - speaking the fixed hint line.");
+            hintRequestCount++;
+            SessionTelemetry.Instance?.Log("hint_requested", "trainee", transcript);
+            isAwaitingResponse = true;
             StartCoroutine(SpeakLineNoAdvance(currentHintText));
         }
         else
@@ -235,15 +246,15 @@ public class VirtualAssistantPersona : MonoBehaviour
     // for a coaching aside rather than in-character dialogue meant to feel naturally paced.
     private void HandleResponseReceived(string fullText)
     {
-        isAwaitingResponse = false;
-
         string line = (fullText ?? "").Trim();
         if (string.IsNullOrEmpty(line))
         {
+            isAwaitingResponse = false;
             Debug.LogWarning("[VirtualAssistantPersona] LLM returned an empty response.");
             return;
         }
 
+        SessionTelemetry.Instance?.LogDialogue(trackingSessionId, trackingStageId, "hint_disclosed", "assistant", line);
         subtitleController?.ShowVirtualAssistantLine(line);
         textToSpeechAgent.SpeakText(line);
 
@@ -302,6 +313,7 @@ not break character as the assistant and do not mention you are a language model
         yield return new WaitForSeconds(responseDelay);
 
         subtitleController?.ShowVirtualAssistantLine(line);
+        SessionTelemetry.Instance?.LogDialogue(trackingSessionId, trackingStageId, "conversation", "assistant", line);
         pendingAdvanceAfterSpeech = true;
         textToSpeechAgent.SpeakText(line);
 
@@ -315,6 +327,7 @@ not break character as the assistant and do not mention you are a language model
     // completion signal, as opposed to SpeakText() merely having been called.
     private void HandleSpeakFinished()
     {
+        isAwaitingResponse = false;
         if (!pendingAdvanceAfterSpeech) return;
 
         pendingAdvanceAfterSpeech = false;
@@ -350,6 +363,7 @@ not break character as the assistant and do not mention you are a language model
     private IEnumerator SpeakLineNoAdvance(string line)
     {
         yield return new WaitForSeconds(responseDelay);
+        SessionTelemetry.Instance?.LogDialogue(trackingSessionId, trackingStageId, "hint_disclosed", "assistant", line);
 
         subtitleController?.ShowVirtualAssistantLine(line);
         textToSpeechAgent.SpeakText(line);
